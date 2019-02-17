@@ -75,16 +75,30 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+/* Looks at each element in the list and wakes up the thread if
+   the time the thread is supposed to wake up has passed. Each
+   thread to wake up is popped off the sleeping list and the pointer    to it is passed to the thread_wake function. */
 static void
 wakeup_all_sleeping (void)
 {
   int64_t now = timer_ticks ();
-  while(true)
+  // Setup pointers to view list elements. 
+  struct list_elem *e;
+  struct thread *t;
+  // Iterate through the list if there are elements.
+  while(!list_empty(&sleeping_list))
   {
-    if(list_empty(&sleeping_list)) return;
-    struct list_elem *e = list_front(&sleeping_list);
-    struct thread *t = list_entry(e, struct thread, elem);
-    if(t->wakeup_time > now) return;
+    // Set the element pointer to the first entry in the list.
+    e = list_front(&sleeping_list);
+    // Cast the list element to a pointer to a thread.
+    t = list_entry(e, struct thread, elem);
+
+    /* Exit the loop if the wakeup time is after now. Because
+       sleeping_list is ordered, any thread after the current one
+       also cannot wake up.*/
+    if(t->wakeup_time > now) break;
+
+    //Remove the thread from the sleeping list and wake it up.
     list_pop_front(&sleeping_list);
     thread_wake(t);
   }
@@ -110,6 +124,7 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
+  // Initialize added list for sleep functionality.
   list_init (&sleeping_list);
 
   /* Set up a thread structure for the running thread. */
@@ -152,6 +167,7 @@ thread_tick (void)
 #endif
   else
     kernel_ticks++;
+  // Wakeup any sleeping function that's timer is up.
   wakeup_all_sleeping();
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
@@ -260,6 +276,11 @@ thread_unblock (struct thread *t)
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
+
+/* Carbon copy of thread_unblock, but intended to wake up a sleeping
+   thread. The only changes are the list it accesses and the state
+   of the thread in question.
+ */
 void
 thread_wake (struct thread *t) 
 {
@@ -273,14 +294,26 @@ thread_wake (struct thread *t)
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
-static bool sleep_LESS(const struct list_elem *e1,
+/* LESS function to be passed in to the ordered list insert. Simply
+   compares the wakeup_time of the two functions and returns
+   true if the first wakeup time is less than the second.
+ */
+static bool
+sleep_LESS(const struct list_elem *e1,
 		       const struct list_elem *e2,
 		       void *aux UNUSED)
 {
-  struct thread *t1 = list_entry(e1, struct thread, elem);
-  struct thread *t2 = list_entry(e2, struct thread, elem);
-  return t1->wakeup_time < t2->wakeup_time;
+  /* Casts current element to a list* type and compares the wakeup 
+    time to the wakeup time of an element in the sleeping list.*/
+  return list_entry(e1, struct thread, elem)->wakeup_time <
+	  list_entry(e2, struct thread, elem)->wakeup_time;
 }
+/* Takes in the exact time that the function should wake up. Then
+   turns off interrupts, sets the status to sleeping, sets the 
+   time to wake up and adds it to the sleeping queue. Finally it 
+   calls schedule to allow another process to run and returns 
+   interrupts to their previous state.
+ */
 void
 sleep_until (int64_t ticks)
 {
