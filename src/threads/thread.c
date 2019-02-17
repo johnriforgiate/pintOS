@@ -28,6 +28,10 @@ static struct list ready_list;
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
 
+/* List of sleeping processes.  Processes are added to this list
+   when they are set to sleep and removed when they wake. */
+static struct list sleeping_list;
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -71,6 +75,20 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+static void
+wakeup_all_sleeping (void)
+{
+  int64_t now = timer_ticks ();
+  while(true)
+  {
+    if(list_empty(&sleeping_list)) return;
+    struct list_elem *e = list_front(&sleeping_list);
+    struct thread *t = list_entry(e, struct thread, elem);
+    if(t->wakeup_time > now) return;
+    list_pop_front(&sleeping_list);
+    thread_wake(t);
+  }
+}
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -92,6 +110,7 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
+  list_init (&sleeping_list);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -133,7 +152,7 @@ thread_tick (void)
 #endif
   else
     kernel_ticks++;
-
+  wakeup_all_sleeping();
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
     intr_yield_on_return ();
@@ -241,7 +260,42 @@ thread_unblock (struct thread *t)
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
+void
+thread_wake (struct thread *t) 
+{
+  enum intr_level old_level;
 
+  ASSERT (is_thread (t));
+
+  old_level = intr_disable ();
+  ASSERT (t->status == THREAD_SLEEPING);
+  list_push_back (&ready_list, &t->elem);
+  t->status = THREAD_READY;
+  intr_set_level (old_level);
+}
+static bool sleep_LESS(const struct list_elem *e1,
+		       const struct list_elem *e2,
+		       void *aux UNUSED)
+{
+  struct thread *t1 = list_entry(e1, struct thread, elem);
+  struct thread *t2 = list_entry(e2, struct thread, elem);
+  return t1->wakeup_time < t2->wakeup_time;
+}
+void
+sleep_until (int64_t ticks)
+{
+  struct thread *c = thread_current();
+  enum intr_level old_level;
+
+  //fix w/ sem or locks
+  old_level = intr_disable();
+  c->status = THREAD_SLEEPING;
+  c->wakeup_time = ticks;
+  if(c!=idle_thread)
+	list_insert_ordered(&sleeping_list, &c->elem, sleep_LESS, NULL);
+  schedule();
+  intr_set_level(old_level);
+}
 /* Returns the name of the running thread. */
 const char *
 thread_name (void) 
