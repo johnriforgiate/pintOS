@@ -28,6 +28,10 @@ static struct list ready_list;
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
 
+/* List of sleeping processes.  Processes are added to this list
+   when they are set to sleep and removed when they wake. */
+static struct list sleeping_list;
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -71,6 +75,34 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+/* Looks at each element in the list and wakes up the thread if
+   the time the thread is supposed to wake up has passed. Each
+   thread to wake up is popped off the sleeping list and the pointer    to it is passed to the thread_wake function. */
+static void
+wakeup_all_sleeping (void)
+{
+  int64_t now = timer_ticks ();
+  // Setup pointers to view list elements. 
+  struct list_elem *e;
+  struct thread *t;
+  // Iterate through the list if there are elements.
+  while(!list_empty(&sleeping_list))
+  {
+    // Set the element pointer to the first entry in the list.
+    e = list_front(&sleeping_list);
+    // Cast the list element to a pointer to a thread.
+    t = list_entry(e, struct thread, elem);
+
+    /* Exit the loop if the wakeup time is after now. Because
+       sleeping_list is ordered, any thread after the current one
+       also cannot wake up.*/
+    if(t->wakeup_time > now) break;
+
+    //Remove the thread from the sleeping list and wake it up.
+    list_pop_front(&sleeping_list);
+    thread_wake(t);
+  }
+}
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -92,6 +124,8 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
+  // Initialize added list for sleep functionality.
+  list_init (&sleeping_list);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -133,7 +167,8 @@ thread_tick (void)
 #endif
   else
     kernel_ticks++;
-
+  // Wakeup any sleeping function that's timer is up.
+  wakeup_all_sleeping();
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
     intr_yield_on_return ();
@@ -242,6 +277,58 @@ thread_unblock (struct thread *t)
   intr_set_level (old_level);
 }
 
+/* Carbon copy of thread_unblock, but intended to wake up a sleeping
+   thread. The only changes are the list it accesses and the state
+   of the thread in question.
+ */
+void
+thread_wake (struct thread *t) 
+{
+  enum intr_level old_level;
+
+  ASSERT (is_thread (t));
+
+  old_level = intr_disable ();
+  ASSERT (t->status == THREAD_SLEEPING);
+  list_push_back (&ready_list, &t->elem);
+  t->status = THREAD_READY;
+  intr_set_level (old_level);
+}
+/* LESS function to be passed in to the ordered list insert. Simply
+   compares the wakeup_time of the two functions and returns
+   true if the first wakeup time is less than the second.
+ */
+static bool
+sleep_LESS(const struct list_elem *e1,
+		       const struct list_elem *e2,
+		       void *aux UNUSED)
+{
+  /* Casts current element to a list* type and compares the wakeup 
+    time to the wakeup time of an element in the sleeping list.*/
+  return list_entry(e1, struct thread, elem)->wakeup_time <
+	  list_entry(e2, struct thread, elem)->wakeup_time;
+}
+/* Takes in the exact time that the function should wake up. Then
+   turns off interrupts, sets the status to sleeping, sets the 
+   time to wake up and adds it to the sleeping queue. Finally it 
+   calls schedule to allow another process to run and returns 
+   interrupts to their previous state.
+ */
+void
+sleep_until (int64_t ticks)
+{
+  struct thread *c = thread_current();
+  enum intr_level old_level;
+
+  //fix w/ sem or locks
+  old_level = intr_disable();
+  c->status = THREAD_SLEEPING;
+  c->wakeup_time = ticks;
+  if(c!=idle_thread)
+	list_insert_ordered(&sleeping_list, &c->elem, sleep_LESS, NULL);
+  schedule();
+  intr_set_level(old_level);
+}
 /* Returns the name of the running thread. */
 const char *
 thread_name (void) 

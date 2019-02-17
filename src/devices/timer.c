@@ -85,15 +85,15 @@ timer_elapsed (int64_t then)
 }
 
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
-   be turned on. */
+   be turned on. Modified to remove spinlock and add true sleep */
 void
 timer_sleep (int64_t ticks) 
 {
-  int64_t start = timer_ticks ();
+  if(ticks <= 0) return;
+  int64_t time = (timer_ticks () + ticks);
 
   ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+  sleep_until (time);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
