@@ -239,6 +239,20 @@ thread_create (const char *name, int priority,
   return tid;
 }
 
+/* LESS function to be passed in to the ordered list insert. Simply
+   compares the priority of the two functions and returns
+   true if the first wakeup time is less than the second.
+ */
+static bool
+priority_LESS(const struct list_elem *e1,
+             const struct list_elem *e2,
+             void *aux UNUSED)
+{
+  /* Casts current element to a list* type and compares the priority
+     to the priority of an element in the sleeping list.*/
+  return list_entry(e1, struct thread, elem)->priority >
+	  list_entry(e2, struct thread, elem)->priority;
+}
 /* Puts the current thread to sleep.  It will not be scheduled
    again until awoken by thread_unblock().
 
@@ -272,7 +286,8 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  // Add to the ready list in order of priority.
+  list_insert_ordered(&ready_list, &t->elem, priority_LESS, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -290,7 +305,8 @@ thread_wake (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_SLEEPING);
-  list_push_back (&ready_list, &t->elem);
+  // Add to the ready list in order of priority.
+  list_insert_ordered(&ready_list, &t->elem, priority_LESS, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -300,14 +316,15 @@ thread_wake (struct thread *t)
  */
 static bool
 sleep_LESS(const struct list_elem *e1,
-		       const struct list_elem *e2,
-		       void *aux UNUSED)
+           const struct list_elem *e2,
+           void *aux UNUSED)
 {
   /* Casts current element to a list* type and compares the wakeup 
     time to the wakeup time of an element in the sleeping list.*/
   return list_entry(e1, struct thread, elem)->wakeup_time <
 	  list_entry(e2, struct thread, elem)->wakeup_time;
 }
+
 /* Takes in the exact time that the function should wake up. Then
    turns off interrupts, sets the status to sleeping, sets the 
    time to wake up and adds it to the sleeping queue. Finally it 
@@ -320,12 +337,10 @@ sleep_until (int64_t ticks)
   struct thread *c = thread_current();
   enum intr_level old_level;
 
-  //fix w/ sem or locks
   old_level = intr_disable();
   c->status = THREAD_SLEEPING;
   c->wakeup_time = ticks;
-  if(c!=idle_thread)
-	list_insert_ordered(&sleeping_list, &c->elem, sleep_LESS, NULL);
+  list_insert_ordered(&sleeping_list, &c->elem, sleep_LESS, NULL);
   schedule();
   intr_set_level(old_level);
 }
@@ -394,10 +409,11 @@ thread_yield (void)
   ASSERT (!intr_context ());
 
   old_level = intr_disable ();
-  if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+  // Add to the ready list in order of priority
+  if (cur != idle_thread)
+    list_insert_ordered(&ready_list, &cur->elem, priority_LESS, NULL);
   cur->status = THREAD_READY;
-  schedule ();
+  schedule();
   intr_set_level (old_level);
 }
 
