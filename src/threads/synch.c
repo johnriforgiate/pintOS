@@ -199,20 +199,6 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
   
-  //struct semaphore *sema = &lock->semaphore;
-  /*if(!list_empty(&sema->waiters))
-  {
-    if(thread_current()->priority < 
-	    list_entry(list_front(&sema->waiters),
-		struct thread, elem)->priority)
-    {
-	    
-      list_insert_ordered (&sema->waiters, &thread_current ()->elem, priority_LESS, NULL);
-      thread_block();
-    }
-  }*/
-  
-  
   sema_down (&lock->semaphore);
   lock->holder = thread_current (); 
 }
