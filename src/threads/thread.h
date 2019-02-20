@@ -4,7 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
-
+struct list ready_list;
 /* States in a thread's life cycle. */
 enum thread_status
   {

@@ -22,7 +22,7 @@
 
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
-static struct list ready_list;
+
 
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
@@ -233,8 +233,12 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
 
+  //enum intr_level old_level;
+
+  //old_level = intr_disable ();
   /* Add to run queue. */
   thread_unblock (t);
+  //intr_set_level (old_level);
   
   if (thread_current ()->priority < t->priority)
 	  thread_yield ();
@@ -292,7 +296,15 @@ thread_unblock (struct thread *t)
   // Add to the ready list in order of priority.
   list_insert_ordered(&ready_list, &t->elem, priority_LESS, NULL);
   t->status = THREAD_READY;
+
   intr_set_level (old_level);
+  if(!intr_context())
+    if(!list_empty(&ready_list))
+      if(thread_current()->priority < 
+	    list_entry(list_front(&ready_list),
+		struct thread, elem)->priority)
+			thread_yield();
+
 }
 
 
@@ -425,7 +437,7 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
-  
+  thread_current ()->init_priority = new_priority;
   if (!list_empty(&ready_list))
 	if (thread_current ()->priority < list_entry(list_front(&ready_list), struct thread, elem)->priority)
 	  thread_yield ();
