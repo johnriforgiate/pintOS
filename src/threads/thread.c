@@ -298,6 +298,7 @@ thread_unblock (struct thread *t)
   t->status = THREAD_READY;
 
   intr_set_level (old_level);
+  
   if(!intr_context())
     if(!list_empty(&ready_list))
       if(thread_current()->priority < 
