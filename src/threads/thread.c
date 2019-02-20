@@ -22,7 +22,7 @@
 
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
-static struct list ready_list;
+
 
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
@@ -100,7 +100,7 @@ wakeup_all_sleeping (void)
 
     //Remove the thread from the sleeping list and wake it up.
     list_pop_front(&sleeping_list);
-    thread_wake(t);
+    thread_unblock(t);
   }
 }
 /* Initializes the threading system by transforming the code
@@ -233,9 +233,16 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
 
+  //enum intr_level old_level;
+
+  //old_level = intr_disable ();
   /* Add to run queue. */
   thread_unblock (t);
-
+  //intr_set_level (old_level);
+  
+  if (thread_current ()->priority < t->priority)
+	  thread_yield ();
+  
   return tid;
 }
 
@@ -243,7 +250,7 @@ thread_create (const char *name, int priority,
    compares the priority of the two functions and returns
    true if the first wakeup time is less than the second.
  */
-static bool
+bool
 priority_LESS(const struct list_elem *e1,
              const struct list_elem *e2,
              void *aux UNUSED)
@@ -285,31 +292,23 @@ thread_unblock (struct thread *t)
   ASSERT (is_thread (t));
 
   old_level = intr_disable ();
-  ASSERT (t->status == THREAD_BLOCKED);
+  ASSERT (t->status == THREAD_BLOCKED || t->status == THREAD_SLEEPING);
   // Add to the ready list in order of priority.
   list_insert_ordered(&ready_list, &t->elem, priority_LESS, NULL);
   t->status = THREAD_READY;
+
   intr_set_level (old_level);
+  
+  if(!intr_context())
+    if(!list_empty(&ready_list))
+      if(thread_current()->priority < 
+	    list_entry(list_front(&ready_list),
+		struct thread, elem)->priority)
+			thread_yield();
+
 }
 
-/* Carbon copy of thread_unblock, but intended to wake up a sleeping
-   thread. The only changes are the list it accesses and the state
-   of the thread in question.
- */
-void
-thread_wake (struct thread *t) 
-{
-  enum intr_level old_level;
 
-  ASSERT (is_thread (t));
-
-  old_level = intr_disable ();
-  ASSERT (t->status == THREAD_SLEEPING);
-  // Add to the ready list in order of priority.
-  list_insert_ordered(&ready_list, &t->elem, priority_LESS, NULL);
-  t->status = THREAD_READY;
-  intr_set_level (old_level);
-}
 /* LESS function to be passed in to the ordered list insert. Simply
    compares the wakeup_time of the two functions and returns
    true if the first wakeup time is less than the second.
@@ -439,6 +438,10 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
+  thread_current ()->init_priority = new_priority;
+  if (!list_empty(&ready_list))
+	if (thread_current ()->priority < list_entry(list_front(&ready_list), struct thread, elem)->priority)
+	  thread_yield ();
 }
 
 /* Returns the current thread's priority. */
@@ -464,7 +467,7 @@ thread_get_nice (void)
 }
 
 /* Returns 100 times the system load average. */
-int
+
 thread_get_load_avg (void) 
 {
   /* Not yet implemented. */
@@ -565,6 +568,7 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->init_priority = priority;
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
