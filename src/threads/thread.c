@@ -451,6 +451,12 @@ thread_get_priority (void)
   return thread_current ()->priority;
 }
 
+/*struct priority_elem
+{
+	struct list_elem elem;
+	int priority;
+};*/
+
 /* Sets the current thread's nice value to NICE. */
 void
 thread_set_nice (int nice UNUSED) 

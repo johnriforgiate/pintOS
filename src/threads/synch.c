@@ -198,7 +198,23 @@ lock_acquire (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
+
+  //struct semaphore *sema = &lock->semaphore;
+  /*if(!list_empty(&sema->waiters))
+  {
+    if(thread_current()->priority < 
+	    list_entry(list_front(&sema->waiters),
+		struct thread, elem)->priority)
+    {
+	    
+      list_insert_ordered (&sema->waiters, &thread_current ()->elem, priority_LESS, NULL);
+      thread_block();
+    }
+  }*/
   
+  if(lock->holder)
+	  if(lock->holder->priority < thread_current ()->priority)
+		  lock->holder->priority = thread_current ()->priority;
   sema_down (&lock->semaphore);
   lock->holder = thread_current (); 
 }
@@ -234,6 +250,8 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
+  struct thread *t = lock->holder;
+  t->priority = t->init_priority;
   lock->holder = NULL;
   sema_up (&lock->semaphore);
 }
@@ -366,3 +384,4 @@ cond_LESS(const struct list_elem *e1,
   return t1->priority > t2->priority;
 
 }
+
