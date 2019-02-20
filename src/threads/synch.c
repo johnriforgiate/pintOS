@@ -217,7 +217,10 @@ lock_acquire (struct lock *lock)
     }
   }*/
   
-  
+  if(lock->holder)
+	  if(lock->holder->priority < thread_current ()->priority)
+		  lock->holder->priority = thread_current ()->priority;
+	  
   sema_down (&lock->semaphore);
   lock->holder = thread_current (); 
 }
@@ -253,6 +256,8 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
+  struct thread *t = lock->holder;
+  t->priority = t->init_priority;
   lock->holder = NULL;
   sema_up (&lock->semaphore);
 }
@@ -361,8 +366,4 @@ cond_broadcast (struct condition *cond, struct lock *lock)
     cond_signal (cond, lock);
 }
 
-void
-donate_priority (void)
-{
-	
-}
+
